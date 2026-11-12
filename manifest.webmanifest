@@ -1,0 +1,8 @@
+{
+  "name": "Deutsch-Mission",
+  "short_name": "Deutsch",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0d1018",
+  "theme_color": "#0d1018"
+}
