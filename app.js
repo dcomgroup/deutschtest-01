@@ -23,22 +23,31 @@ const questions=[
 ];
 const $=id=>document.getElementById(id);
 let data;try{data=JSON.parse(localStorage.getItem("deutsch-mission-v1"))}catch{}data=data||{profile:"",stats:{},log:[]};
-let phase="home",queue=[],index=0,answer="",checked=false,correct=false,score=0;
+let phase="home",queue=[],index=0,answer="",checked=false,correct=false,score=0,sessionMistakes={},sessionSeen={};
+const DAY=86400000;const intervals=[1,3,7,14,30];
+function dueIds(){return questions.map((q,i)=>i).filter(i=>data.stats[i]&&data.stats[i].next<=Date.now())}
+function status(){const due=dueIds().length,learned=Object.values(data.stats).filter(s=>s.streak>=2).length;return {due,learned}}
+function stagger(ids){const buckets=[[],[],[],[],[]];ids.forEach(i=>buckets[questions[i][4]].push(i));let result=[];while(buckets.some(b=>b.length)){for(const b of buckets)if(b.length)result.push(b.shift())}return result}
+
 function save(){localStorage.setItem("deutsch-mission-v1",JSON.stringify(data))}
 function esc(s){return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll('"',"&quot;")}
 function norm(s){return String(s).trim().toLocaleLowerCase("de").replace(/[.!?]+$/,"").replace(/\s+/g," ")}
-function start(type){phase=type;index=0;score=0;answer="";checked=false;
+function start(type){phase=type;index=0;score=0;answer="";checked=false;sessionMistakes={};sessionSeen={};
 if(type==="diagnose")queue=[0,4,8,12,16,1,6,10,14,18];
-if(type==="training"){let order=questions.map((q,i)=>i).sort((a,b)=>(data.stats[a]?.streak||0)-(data.stats[b]?.streak||0));queue=order.slice(0,12);queue.splice(4,0,queue[0]);queue.splice(9,0,queue[2]);}
+if(type==="training"){const due=dueIds();const fresh=questions.map((q,i)=>i).filter(i=>!data.stats[i]);queue=stagger([...due,...fresh]).slice(0,12);if(!queue.length){queue=stagger(questions.map((q,i)=>i).filter(i=>data.stats[i].streak<2)).slice(0,10)}}
 if(type==="boss")queue=[19,15,7,10,17,3,13,5,9,18];
-render()}
+if(!queue.length){phase="caughtup"}render()}
 function check(){const q=questions[queue[index]];correct=norm(answer)===norm(q[1]);checked=true;if(correct)score++;
 const id=queue[index],s=data.stats[id]||{right:0,wrong:0,streak:0};s.right+=Number(correct);s.wrong+=Number(!correct);s.streak=correct?s.streak+1:0;
-s.next=Date.now()+(correct?(s.streak>2?3:1)*86400000:0);data.stats[id]=s;data.log.push({id,correct,date:new Date().toISOString(),profile:data.profile});save();render()}
+s.level=correct?Math.min((s.level||0)+1,intervals.length):0;
+s.next=Date.now()+(correct?intervals[s.level-1]*DAY:0);
+if(!correct){sessionMistakes[id]=(sessionMistakes[id]||0)+1;if(sessionMistakes[id]<=2){const at=Math.min(index+3,queue.length);queue.splice(at,0,id)}}
+sessionSeen[id]=(sessionSeen[id]||0)+1;data.stats[id]=s;data.log.push({id,correct,date:new Date().toISOString(),profile:data.profile});save();render()}
 function next(){if(++index>=queue.length)phase="results";answer="";checked=false;render()}
 function exportData(){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="deutsch-mission-backup.json";a.click();URL.revokeObjectURL(a.href)}
-function render(){const mode=$("mode");mode.textContent={home:"Start",diagnose:"Diagnose",training:"Training",boss:"Bosskampf",results:"Ergebnis"}[phase];const root=$("app");
-if(phase==="home"){root.innerHTML='<section class="card"><h2>🏴‍☠️ Die Piraten-Akademie</h2><p>Trainiere die Grammatik für deinen Deutschtest.</p><label>Dein Lernprofil</label><input id="profile" placeholder="Vorname oder Spitzname" value="'+esc(data.profile)+'"><p class="muted small">Der Lernstand wird auf diesem Gerät gespeichert.</p><button class="btn primary" id="start">Diagnose starten</button><button class="btn" id="train">Adaptives Training</button><button class="btn" id="boss">Bosskampf</button><button class="btn" id="backup">Lernstand exportieren</button></section>';const store=()=>{data.profile=$("profile").value.trim();save()};$("profile").onchange=store;$("start").onclick=()=>{store();start("diagnose")};$("train").onclick=()=>{store();start("training")};$("boss").onclick=()=>{store();start("boss")};$("backup").onclick=exportData;return}
+function render(){const mode=$("mode");mode.textContent={home:"Start",diagnose:"Diagnose",training:"Training",boss:"Bosskampf",results:"Ergebnis",caughtup:"Erledigt"}[phase];const root=$("app");
+if(phase==="home"){const st=status();root.innerHTML='<section class="card"><h2>🏴‍☠️ Die Piraten-Akademie</h2><p>Trainiere die Grammatik für deinen Deutschtest.</p><p><strong>'+st.due+' Wiederholungen fällig</strong> · '+st.learned+' Aufgaben mindestens zweimal hintereinander richtig</p><label>Dein Lernprofil</label><input id="profile" placeholder="Vorname oder Spitzname" value="'+esc(data.profile)+'"><p class="muted small">Der Lernstand wird auf diesem Gerät gespeichert.</p><button class="btn primary" id="start">Diagnose starten</button><button class="btn" id="train">Adaptives Training</button><button class="btn" id="boss">Bosskampf</button><button class="btn" id="backup">Lernstand exportieren</button></section>';const store=()=>{data.profile=$("profile").value.trim();save()};$("profile").onchange=store;$("start").onclick=()=>{store();start("diagnose")};$("train").onclick=()=>{store();start("training")};$("boss").onclick=()=>{store();start("boss")};$("backup").onclick=exportData;return}
+if(phase==="caughtup"){root.innerHTML='<section class="card"><h2>Alles für heute erledigt!</h2><p>Die nächsten Wiederholungen erscheinen automatisch an ihrem Fälligkeitstag.</p><button class="btn primary" id="home">Zur Startseite</button></section>';$("home").onclick=()=>{phase="home";render()};return}
 if(phase==="results"){root.innerHTML='<section class="card"><h2>🏆 '+score+' / '+queue.length+' Punkte</h2><p>Runde abgeschlossen.</p><h3>Lernstand nach Themen</h3>'+topics.map((t,i)=>{let ids=questions.map((q,j)=>q[4]===i?j:-1).filter(j=>j>=0),n=ids.filter(j=>data.stats[j]?.right).length;return '<p>'+t+': '+n+' / '+ids.length+' Aufgaben schon einmal richtig</p><div class="progress"><div style="width:'+100*n/ids.length+'%"></div></div>'}).join('')+'<button class="btn primary" id="train">Adaptives Training</button><button class="btn" id="boss">Bosskampf</button><button class="btn" id="home">Zur Startseite</button></section>';$("train").onclick=()=>start("training");$("boss").onclick=()=>start("boss");$("home").onclick=()=>{phase="home";render()};return}
 const q=questions[queue[index]],opts=q[2]?.split("|");
 root.innerHTML='<section class="card"><div class="row"><span>Aufgabe '+(index+1)+' / '+queue.length+'</span><span>☆ '+score+' Punkte</span></div><div class="progress"><div style="width:'+100*index/queue.length+'%"></div></div><p class="muted">'+topics[q[4]]+'</p><h2>'+esc(q[0])+'</h2><div id="answers">'+(opts?opts.map(o=>'<button class="btn option" data-value="'+esc(o)+'">'+esc(o)+'</button>').join(""):'<input id="typed" placeholder="Deine Antwort" autocomplete="off">')+'</div><div id="feedback"></div><button class="btn primary" id="action">'+(checked?"Weiter":"Prüfen")+'</button></section>';
