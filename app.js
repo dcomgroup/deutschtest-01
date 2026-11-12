@@ -49,12 +49,22 @@ function esc(s){return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").
 function norm(s){return String(s).trim().toLocaleLowerCase("de").replace(/[.!?]+$/,"").replace(/\s+/g," ")}
 function start(type){phase=type;index=0;score=0;answer="";checked=false;sessionMistakes={};sessionSeen={};
 if(type==="diagnose")queue=[0,4,8,12,16,1,6,10,14,18];
-if(type==="training"){const due=dueIds();const fresh=questions.map((q,i)=>i).filter(i=>!data.stats[i]);queue=stagger([...due,...fresh]).slice(0,12);if(!queue.length){queue=stagger(questions.map((q,i)=>i).filter(i=>data.stats[i].streak<2)).slice(0,10)}}
+if(type==="training"){const due=dueIds();const fresh=questions.map((q,i)=>i).filter(i=>!data.stats[i]);queue=stagger([...due,...fresh.sort((a,b)=>a-b)]).slice(0,12);if(!queue.length){queue=stagger(questions.map((q,i)=>i).filter(i=>data.stats[i].streak<2)).slice(0,10)}}
 if(type==="extra"){
-const today=new Date().toDateString();
-const todayWrong={};for(const item of data.log||[]){if(new Date(item.date).toDateString()===today&&!item.correct)todayWrong[item.id]=(todayWrong[item.id]||0)+1}
-const ranked=questions.map((q,i)=>({i,priority:(todayWrong[i]||0)*100+(data.stats[i]?.wrong||0)*10-Math.min(data.stats[i]?.streak||0,5)*3+(data.stats[i]?.next<=Date.now()?30:0)})).sort((a,b)=>b.priority-a.priority||a.i-b.i);
-queue=stagger(ranked.slice(0,12).map(x=>x.i));
+const now=Date.now(),today=new Date().toDateString();
+const todayWrong={},lastSeen={};
+for(const item of data.log||[]){
+lastSeen[item.id]=new Date(item.date).getTime();
+if(new Date(item.date).toDateString()===today&&!item.correct)todayWrong[item.id]=(todayWrong[item.id]||0)+1;
+}
+const ranked=questions.map((q,i)=>{
+const st=data.stats[i]||{},age=lastSeen[i]?Math.min((now-lastSeen[i])/DAY,30):30;
+const priority=(todayWrong[i]||0)*70+(st.wrong||0)*5-(st.streak||0)*4+(st.next<=now?25:0)+age*2+(lastSeen[i]?0:35);
+return {i,priority};
+}).sort((a,b)=>b.priority-a.priority||a.i-b.i);
+const selected=[],counts=[0,0,0,0,0];
+for(const item of ranked){const topic=questions[item.i][4];if(counts[topic]<3&&selected.length<15){selected.push(item.i);counts[topic]++}}
+queue=stagger(selected);
 }
 if(type==="boss")queue=[19,15,7,10,17,3,13,5,9,18];
 if(!queue.length){phase="caughtup"}render()}
